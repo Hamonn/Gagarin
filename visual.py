@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QFileDialog,
-                             QComboBox, QCheckBox, QDialog, QSpinBox, QHBoxLayout)
+                             QComboBox, QCheckBox, QDialog, QSpinBox, QHBoxLayout, QLineEdit)
 
 
-class TimerDialog(QDialog): # кнопка таймера
+class TimerDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Таймер")
@@ -21,7 +21,7 @@ class TimerDialog(QDialog): # кнопка таймера
         self.setLayout(layout)
 
 
-class SettingsWindow(QWidget): # кнопка доп. настроек
+class SettingsWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Дополнительные настройки")
@@ -46,7 +46,7 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Программа шифрования")
-        self.setFixedSize(350, 400)
+        self.setFixedSize(350, 450)
         layout = QVBoxLayout()
 
         self.file_label = QLabel("Выберите файл")
@@ -61,6 +61,14 @@ class MainWindow(QWidget):
         self.encrypt_method.setPlaceholderText("Выберите метод шифрования")
         self.encrypt_method.currentIndexChanged.connect(self.check_ready)
 
+        password_layout = QHBoxLayout()
+        self.password_label = QLabel("Введите пароль:")
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password_input.textChanged.connect(self.check_ready)
+        password_layout.addWidget(self.password_label)
+        password_layout.addWidget(self.password_input)
+
         self.timer_button = QPushButton("Таймер")
         self.timer_button.clicked.connect(self.set_timer)
 
@@ -73,6 +81,7 @@ class MainWindow(QWidget):
 
         layout.addLayout(file_layout)
         layout.addWidget(self.encrypt_method)
+        layout.addLayout(password_layout)
         layout.addWidget(self.timer_button)
         layout.addWidget(self.settings_button)
         layout.addWidget(self.upload_button)
@@ -95,7 +104,9 @@ class MainWindow(QWidget):
         self.settings_window.show()
 
     def check_ready(self):
-        if self.file_label.text() != "Выберите файл" and self.encrypt_method.currentText():
+        if (self.file_label.text() != "Выберите файл" and
+                self.encrypt_method.currentText() and
+                self.password_input.text()):
             self.upload_button.setEnabled(True)
         else:
             self.upload_button.setEnabled(False)
@@ -103,14 +114,15 @@ class MainWindow(QWidget):
     def encrypt_and_convert(self):
         file_path = self.file_label.text()
         method = self.encrypt_method.currentText()
+        password = self.password_input.text()
 
-        if file_path == "Выберите файл" or not method:
-            print("Ошибка: файл не выбран или метод не задан!")
+        if file_path == "Выберите файл" or not method or not password:
+            print("Ошибка: файл не выбран, метод не задан или пароль не введён!")
             return
 
-        print(f"Шифруем файл {file_path} методом {method}...")
+        print(f"Шифруем файл {file_path} методом {method} с паролем (скрыто)...")
 
-        # ТУТ КОД ШИФРОВАНИЯ
+        # ТУТ КОД ШИФРОВАНИЯ С УЧЁТОМ ПАРОЛЯ
         encrypted_file = f"{file_path}.enc"  # Заглушка, должно быть реальное шифрование
 
         # ТУТ КОД ДЛЯ СОЗДАНИЯ EXE
