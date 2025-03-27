@@ -78,9 +78,13 @@ class MainWindow(QWidget):
         self.settings_button = QPushButton("Дополнительные настройки")
         self.settings_button.clicked.connect(self.open_settings)
 
-        self.encrypt_button = QPushButton("Зашифровать файл")
+        self.encrypt_button = QPushButton("🔒 Зашифровать файл")
         self.encrypt_button.setEnabled(False)
         self.encrypt_button.clicked.connect(self.encrypt_file)
+
+        self.decrypt_button = QPushButton("🔓 Расшифровать файл")
+        self.decrypt_button.setEnabled(False)
+        self.decrypt_button.clicked.connect(self.decrypt_file)
 
         layout.addLayout(file_layout)
         layout.addWidget(self.encrypt_method)
@@ -88,6 +92,7 @@ class MainWindow(QWidget):
         layout.addWidget(self.timer_button)
         layout.addWidget(self.settings_button)
         layout.addWidget(self.encrypt_button)
+        layout.addWidget(self.decrypt_button)
         self.setLayout(layout)
 
     def select_file(self):
@@ -107,12 +112,13 @@ class MainWindow(QWidget):
         self.settings_window.show()
 
     def check_ready(self):
-        if (self.file_label.text() != "Выберите файл" and
-                self.encrypt_method.currentText() and
-                self.password_input.text()):
-            self.encrypt_button.setEnabled(True)
-        else:
-            self.encrypt_button.setEnabled(False)
+        """Активирует кнопки только если все условия выполнены"""
+        file_selected = self.file_label.text() != "Выберите файл"
+        password_entered = bool(self.password_input.text())
+        encryption_method_selected = bool(self.encrypt_method.currentText())
+
+        self.encrypt_button.setEnabled(file_selected and password_entered and encryption_method_selected)
+        self.decrypt_button.setEnabled(file_selected and password_entered)
 
     def encrypt_file(self):
         file_path = self.file_label.text()
@@ -125,6 +131,24 @@ class MainWindow(QWidget):
         try:
             encrypted_file = self.crypto.encrypt_file(file_path, password)
             QMessageBox.information(self, "Готово", f"Файл зашифрован: {encrypted_file}")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
+
+    def decrypt_file(self):
+        file_path = self.file_label.text()
+        password = self.password_input.text()
+
+        if file_path == "Выберите файл" or not password:
+            QMessageBox.warning(self, "Ошибка", "Выберите зашифрованный файл и введите пароль")
+            return
+
+        if not file_path.endswith(".enc"):
+            QMessageBox.warning(self, "Ошибка", "Выбранный файл не зашифрован!")
+            return
+
+        try:
+            decrypted_file = self.crypto.decrypt_file(file_path, password)
+            QMessageBox.information(self, "Готово", f"Файл расшифрован: {decrypted_file}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
