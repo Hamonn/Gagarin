@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QFileDialog,
-                             QComboBox, QCheckBox, QDialog, QSpinBox, QHBoxLayout, QLineEdit)
+                             QComboBox, QCheckBox, QDialog, QSpinBox, QHBoxLayout, QLineEdit, QMessageBox)
+from crypto_module import CryptoModule  # Импортируем модуль шифрования
 
 
 class TimerDialog(QDialog):
@@ -46,7 +47,9 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Программа шифрования")
-        self.setFixedSize(350, 450)
+        self.setFixedSize(350, 500)
+        self.crypto = CryptoModule()  # Экземпляр модуля шифрования
+
         layout = QVBoxLayout()
 
         self.file_label = QLabel("Выберите файл")
@@ -75,16 +78,16 @@ class MainWindow(QWidget):
         self.settings_button = QPushButton("Дополнительные настройки")
         self.settings_button.clicked.connect(self.open_settings)
 
-        self.upload_button = QPushButton("Загрузить файл")
-        self.upload_button.setEnabled(False)
-        self.upload_button.clicked.connect(self.encrypt_and_convert)
+        self.encrypt_button = QPushButton("Зашифровать файл")
+        self.encrypt_button.setEnabled(False)
+        self.encrypt_button.clicked.connect(self.encrypt_file)
 
         layout.addLayout(file_layout)
         layout.addWidget(self.encrypt_method)
         layout.addLayout(password_layout)
         layout.addWidget(self.timer_button)
         layout.addWidget(self.settings_button)
-        layout.addWidget(self.upload_button)
+        layout.addWidget(self.encrypt_button)
         self.setLayout(layout)
 
     def select_file(self):
@@ -107,28 +110,23 @@ class MainWindow(QWidget):
         if (self.file_label.text() != "Выберите файл" and
                 self.encrypt_method.currentText() and
                 self.password_input.text()):
-            self.upload_button.setEnabled(True)
+            self.encrypt_button.setEnabled(True)
         else:
-            self.upload_button.setEnabled(False)
+            self.encrypt_button.setEnabled(False)
 
-    def encrypt_and_convert(self):
+    def encrypt_file(self):
         file_path = self.file_label.text()
-        method = self.encrypt_method.currentText()
         password = self.password_input.text()
 
-        if file_path == "Выберите файл" or not method or not password:
-            print("Ошибка: файл не выбран, метод не задан или пароль не введён!")
+        if file_path == "Выберите файл" or not password:
+            QMessageBox.warning(self, "Ошибка", "Выберите файл и введите пароль")
             return
 
-        print(f"Шифруем файл {file_path} методом {method} с паролем (скрыто)...")
-
-        # ТУТ КОД ШИФРОВАНИЯ С УЧЁТОМ ПАРОЛЯ
-        encrypted_file = f"{file_path}.enc"  # Заглушка, должно быть реальное шифрование
-
-        # ТУТ КОД ДЛЯ СОЗДАНИЯ EXE
-        exe_file = f"{file_path}.exe"  # Заглушка, надо сделать реальный .exe
-
-        print(f"Файл зашифрован и преобразован в {exe_file}")
+        try:
+            encrypted_file = self.crypto.encrypt_file(file_path, password)
+            QMessageBox.information(self, "Готово", f"Файл зашифрован: {encrypted_file}")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", str(e))
 
 
 if __name__ == "__main__":
