@@ -1,5 +1,7 @@
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QFileDialog,
                              QComboBox, QCheckBox, QDialog, QSpinBox, QHBoxLayout, QLineEdit, QMessageBox)
+from PyQt6.QtCore import QTimer
+import os
 from crypto_module import CryptoModule  # Импортируем модуль шифрования
 
 
@@ -95,6 +97,11 @@ class MainWindow(QWidget):
         layout.addWidget(self.decrypt_button)
         self.setLayout(layout)
 
+        self.timer_duration = 0  # Время удаления зашифрованного файла
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.delete_encrypted_file)
+        self.encrypted_file_path = ""  # Путь к зашифрованному файлу
+
     def select_file(self):
         file_dialog = QFileDialog()
         file_path, _ = file_dialog.getOpenFileName(self, "Выберите файл")
@@ -103,9 +110,11 @@ class MainWindow(QWidget):
             self.check_ready()
 
     def set_timer(self):
+        """Устанавливает таймер удаления зашифрованного файла"""
         dialog = TimerDialog()
         if dialog.exec():
-            print(f"Таймер установлен на {dialog.timer_input.value()} секунд")
+            self.timer_duration = dialog.timer_input.value()
+            QMessageBox.information(self, "Таймер", f"Зашифрованный файл будет удалён через {self.timer_duration} секунд")
 
     def open_settings(self):
         self.settings_window = SettingsWindow()
@@ -121,6 +130,7 @@ class MainWindow(QWidget):
         self.decrypt_button.setEnabled(file_selected and password_entered)
 
     def encrypt_file(self):
+        """Шифрует файл, удаляет исходный и запускает таймер удаления зашифрованного файла"""
         file_path = self.file_label.text()
         password = self.password_input.text()
 
@@ -129,12 +139,32 @@ class MainWindow(QWidget):
             return
 
         try:
-            encrypted_file = self.crypto.encrypt_file(file_path, password)
-            QMessageBox.information(self, "Готово", f"Файл зашифрован: {encrypted_file}")
+            self.encrypted_file_path = self.crypto.encrypt_file(file_path, password)
+            QMessageBox.information(self, "Готово", f"Файл зашифрован: {self.encrypted_file_path}")
+
+            # Удаляем исходный файл после успешного шифрования
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                QMessageBox.information(self, "Удаление", "Исходный файл был удалён")
+
+            # Запускаем таймер удаления зашифрованного файла
+            if self.timer_duration > 0:
+                self.timer.start(self.timer_duration * 1000)  # Запуск таймера
+
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
+    def delete_encrypted_file(self):
+        """Удаляет зашифрованный файл по таймеру"""
+        self.timer.stop()  # Останавливаем таймер
+
+        if self.encrypted_file_path and os.path.exists(self.encrypted_file_path):
+            os.remove(self.encrypted_file_path)
+            QMessageBox.information(self, "Удаление", "Зашифрованный файл был удалён")
+            self.encrypted_file_path = ""  # Очищаем путь
+
     def decrypt_file(self):
+        """Расшифровывает файл, но не удаляет зашифрованную версию"""
         file_path = self.file_label.text()
         password = self.password_input.text()
 
@@ -149,6 +179,7 @@ class MainWindow(QWidget):
         try:
             decrypted_file = self.crypto.decrypt_file(file_path, password)
             QMessageBox.information(self, "Готово", f"Файл расшифрован: {decrypted_file}")
+
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
