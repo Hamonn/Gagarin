@@ -1,17 +1,38 @@
 import os
 import time
+import pyperclip
+import threading
 import multiprocessing
 from PyQt6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QVBoxLayout, QFileDialog,
-                             QComboBox, QDialog, QSpinBox, QHBoxLayout, QLineEdit, QMessageBox)
+                             QDialog, QSpinBox, QHBoxLayout, QLineEdit, QMessageBox, QCheckBox)
 from crypto_module import CryptoModule
 
 
 def delete_file_after_delay(file_path, delay):
-    """Функция для удаления файла через заданное время (фоновый процесс)."""
+    """Удаление файла через заданное время (фоновый процесс)."""
     time.sleep(delay)
     if os.path.exists(file_path):
         os.remove(file_path)
         print(f"Файл {file_path} удалён по истечению таймера.")
+
+
+def monitor_clipboard(file_path):
+    """Следит за буфером обмена и удаляет файл, если его содержимое скопировано."""
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            decrypted_content = f.read().strip()
+    except Exception as e:
+        print(f"Ошибка при чтении {file_path}: {e}")
+        return
+
+    while os.path.exists(file_path):
+        clipboard_content = pyperclip.paste().strip()
+        if clipboard_content == decrypted_content:
+            os.remove(file_path)
+            pyperclip.copy("")  # Очищаем буфер обмена
+            print(f"Файл {file_path} удалён из-за копирования содержимого. Буфер обмена очищен.")
+            break
+        time.sleep(1)
 
 
 class TimerDialog(QDialog):
@@ -38,12 +59,21 @@ class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Программа шифрования")
-        self.setFixedSize(400, 300)
+        self.setFixedSize(400, 350)
         self.crypto = CryptoModule()
-        self.delete_after = None  # Время удаления зашифрованного файла
-        self.encrypted_file_path = None  # Путь к зашифрованному файлу
+
+        self.delete_after = 10  # Таймер по умолчанию (10 сек)
+        self.enable_copy_protection = False  # Защита от копирования (по умолчанию выключена)
 
         layout = QVBoxLayout()
+
+        # Кнопка настроек
+        self.settings_button = QPushButton("⚙️ Настройки")
+        self.settings_button.clicked.connect(self.open_settings)
+
+        # Кнопка установки таймера
+        self.timer_button = QPushButton("⏳ Установить таймер")
+        self.timer_button.clicked.connect(self.set_timer)
 
         # Выбор файла
         file_layout = QHBoxLayout()
@@ -62,19 +92,6 @@ class MainWindow(QWidget):
         password_layout.addWidget(self.password_label)
         password_layout.addWidget(self.password_input)
 
-        # Выбор метода шифрования
-        method_layout = QHBoxLayout()
-        self.method_label = QLabel("Метод:")
-        self.method_combo = QComboBox()
-        self.method_combo.addItems(["AES", "Другой метод"])  # Можно добавить другие методы
-        self.method_combo.currentIndexChanged.connect(self.check_ready)
-        method_layout.addWidget(self.method_label)
-        method_layout.addWidget(self.method_combo)
-
-        # Кнопка установки таймера
-        self.timer_button = QPushButton("⏳ Установить таймер")
-        self.timer_button.clicked.connect(self.set_timer)
-
         # Кнопки шифрования и дешифрования
         button_layout = QHBoxLayout()
         self.encrypt_button = QPushButton("🔒 Зашифровать")
@@ -88,12 +105,41 @@ class MainWindow(QWidget):
         button_layout.addWidget(self.encrypt_button)
         button_layout.addWidget(self.decrypt_button)
 
+        layout.addWidget(self.settings_button)
+        layout.addWidget(self.timer_button)
         layout.addLayout(file_layout)
         layout.addLayout(password_layout)
-        layout.addLayout(method_layout)
-        layout.addWidget(self.timer_button)
         layout.addLayout(button_layout)
         self.setLayout(layout)
+
+    def open_settings(self):
+        """Открытие диалогового окна с настройками"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Настройки")
+        layout = QVBoxLayout()
+
+        self.copy_protection_checkbox = QCheckBox("Включить защиту от копирования")
+        self.copy_protection_checkbox.setChecked(self.enable_copy_protection)
+
+        save_button = QPushButton("Сохранить")
+        save_button.clicked.connect(lambda: self.save_settings(dialog))
+
+        layout.addWidget(self.copy_protection_checkbox)
+        layout.addWidget(save_button)
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def save_settings(self, dialog):
+        """Сохранение настроек чекбокса защиты от копирования"""
+        self.enable_copy_protection = self.copy_protection_checkbox.isChecked()
+        dialog.accept()
+
+    def set_timer(self):
+        """Открытие окна для выбора времени удаления"""
+        dialog = TimerDialog()
+        if dialog.exec():
+            self.delete_after = dialog.timer_input.value()
+            QMessageBox.information(self, "Таймер установлен", f"Файл будет удалён через {self.delete_after} сек.")
 
     def select_file(self):
         """Выбор файла пользователем"""
@@ -103,71 +149,49 @@ class MainWindow(QWidget):
             self.file_label.setText(file_path)
             self.check_ready()
 
-    def set_timer(self):
-        """Открытие окна для выбора времени удаления"""
-        dialog = TimerDialog()
-        if dialog.exec():
-            self.delete_after = dialog.timer_input.value()
-            QMessageBox.information(self, "Таймер установлен", f"Файл будет удалён через {self.delete_after} сек.")
-
     def check_ready(self):
-        """Активирует кнопки только если файл, пароль и метод шифрования выбраны"""
+        """Активирует кнопки, если файл и пароль выбраны"""
         file_selected = self.file_label.text() != "Выберите файл"
         password_entered = bool(self.password_input.text())
-        method_selected = self.method_combo.currentText() != ""
 
-        self.encrypt_button.setEnabled(file_selected and password_entered and method_selected)
+        self.encrypt_button.setEnabled(file_selected and password_entered)
         self.decrypt_button.setEnabled(file_selected and password_entered and self.file_label.text().endswith(".enc"))
 
     def encrypt_file(self):
-        """Шифрование файла"""
+        """Шифрование файла через crypto_module"""
         file_path = self.file_label.text()
         password = self.password_input.text()
-        method = self.method_combo.currentText()
-
-        if file_path == "Выберите файл" or not password:
-            QMessageBox.warning(self, "Ошибка", "Выберите файл, метод и введите пароль")
-            return
 
         try:
-            encrypted_file = self.crypto.encrypt_file(file_path, password, method)
-            self.encrypted_file_path = encrypted_file  # Сохраняем путь к зашифрованному файлу
-
+            encrypted_file = self.crypto.encrypt_file(file_path, password)
             QMessageBox.information(self, "Готово", f"Файл зашифрован: {encrypted_file}")
-
-            # Запускаем фоновый процесс для удаления зашифрованного файла через таймер
-            if self.delete_after:
-                p = multiprocessing.Process(target=delete_file_after_delay, args=(encrypted_file, self.delete_after))
-                p.start()
-                print(f"Файл {encrypted_file} будет удалён через {self.delete_after} секунд.")
 
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
     def decrypt_file(self):
-        """Расшифровка файла"""
+        """Расшифровка файла через crypto_module с учётом включенных функций"""
         file_path = self.file_label.text()
         password = self.password_input.text()
-        method = self.method_combo.currentText()
-
-        if file_path == "Выберите файл" or not password:
-            QMessageBox.warning(self, "Ошибка", "Выберите зашифрованный файл, метод и введите пароль")
-            return
 
         try:
             decrypted_file = self.crypto.decrypt_file(file_path, password)
             QMessageBox.information(self, "Готово", f"Файл расшифрован: {decrypted_file}")
 
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print(f"Файл {file_path} (зашифрованная версия) удалён после расшифровки.")
+            # Запускаем защиту от копирования (если включено)
+            if self.enable_copy_protection:
+                threading.Thread(target=monitor_clipboard, args=(decrypted_file,), daemon=True).start()
+
+            # Запускаем таймер на удаление файла (всегда)
+            p = multiprocessing.Process(target=delete_file_after_delay, args=(decrypted_file, self.delete_after))
+            p.start()
 
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", str(e))
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()  # Для корректной работы multiprocessing на Windows
+    multiprocessing.freeze_support()
     app = QApplication([])
     window = MainWindow()
     window.show()
