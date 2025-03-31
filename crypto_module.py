@@ -1,199 +1,171 @@
 import os
-import hashlib
 import json
-from Cryptodome.Cipher import AES, ChaCha20, Blowfish
-from Cryptodome.Util.Padding import pad, unpad
-from Cryptodome.Random import get_random_bytes
+import hashlib
+from Crypto.Cipher import AES, Blowfish, DES3, ChaCha20
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Random import get_random_bytes
+from Crypto.Hash import HMAC, SHA256
+from Crypto.Protocol.KDF import PBKDF2
+from uuid import getnode as get_mac
 
 
 class CryptoModule:
     def __init__(self):
         self.key = None
+        self.salt = b"MySuperSalt"
 
-    def generate_key(self, password: str, method: str):
-        password_bytes = password.encode('utf-8')
-        if method == "AES-256-CBC":
-            self.key = hashlib.sha256(password_bytes).digest()
-        elif method == "ChaCha20":
-            self.key = hashlib.sha256(password_bytes).digest()
-        elif method == "Blowfish":
-            self.key = hashlib.sha1(password_bytes).digest()[:16]
-        else:
-            raise ValueError(f"Неподдерживаемый метод шифрования: {method}")
+    def generate_key(self, password: str):
+        self.key = PBKDF2(password, self.salt, dkLen=32, count=100000)
 
-    def encrypt_file(self, file_path: str, password: str, method: str = "AES-256-CBC", max_opens: int = None,
-                     max_attempts: int = 3, device_id: str = None, ip_address: str = None):
+    def _get_mac_address(self):
+        return ':'.join(['{:02x}'.format((get_mac() >> i) & 0xff)
+                         for i in range(0, 2 * 6, 8)][::-1])
+
+    def _hmac_sign(self, data: bytes) -> bytes:
+        h = HMAC.new(self.key, digestmod=SHA256)
+        h.update(data)
+        return h.digest()
+
+    def _hmac_verify(self, data: bytes, signature: bytes):
+        h = HMAC.new(self.key, digestmod=SHA256)
+        h.update(data)
+        try:
+            h.verify(signature)
+        except ValueError:
+            raise ValueError("Неверная подпись данных")
+
+    def encrypt_file(self, file_path: str, password: str, method: str = "AES-256-CBC",
+                     max_opens: int = 5, max_attempts: int = 3,
+                     device_id: str = None, ip_address: str = None):
         if not os.path.exists(file_path):
-            raise FileNotFoundError("Исходный файл не найден")
+            raise FileNotFoundError("Файл не найден")
 
-        self.generate_key(password, method)
-        encrypted_file_path = file_path + ".enc"
-
-        with open(file_path, 'rb') as f:
-            plaintext = f.read()
-
-        metadata = {
-            "max_opens": max_opens if max_opens is not None else float('inf'),
-            "current_opens": 0,
-            "max_attempts": max_attempts,
-            "attempts_left": max_attempts,
-            "file_hash": hashlib.sha256(plaintext).hexdigest(),
-            "device_id": device_id,
-            "ip_address": ip_address
-        }
-        metadata_bytes = json.dumps(metadata).encode('utf-8')
-
-        encrypted_data = None
-
-        if method == "AES-256-CBC":
-            iv = get_random_bytes(16)
-            cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            padded_data = pad(plaintext, AES.block_size)
-            ciphertext = cipher.encrypt(padded_data)
-            metadata_cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            padded_metadata = pad(metadata_bytes, AES.block_size)
-            metadata_ciphertext = metadata_cipher.encrypt(padded_metadata)
-            encrypted_data = iv + len(metadata_ciphertext).to_bytes(4, 'big') + metadata_ciphertext + ciphertext
-
-        elif method == "ChaCha20":
-            nonce = get_random_bytes(8)
-            cipher = ChaCha20.new(key=self.key, nonce=nonce)
-            ciphertext = cipher.encrypt(plaintext)
-            metadata_cipher = ChaCha20.new(key=self.key, nonce=nonce)
-            metadata_ciphertext = metadata_cipher.encrypt(metadata_bytes)
-            encrypted_data = nonce + len(metadata_ciphertext).to_bytes(4, 'big') + metadata_ciphertext + ciphertext
-
-        elif method == "Blowfish":
-            iv = get_random_bytes(8)
-            cipher = Blowfish.new(self.key, Blowfish.MODE_CBC, iv)
-            padded_data = pad(plaintext, Blowfish.block_size)
-            ciphertext = cipher.encrypt(padded_data)
-            metadata_cipher = Blowfish.new(self.key, Blowfish.MODE_CBC, iv)
-            padded_metadata = pad(metadata_bytes, Blowfish.block_size)
-            metadata_ciphertext = metadata_cipher.encrypt(padded_metadata)
-            encrypted_data = iv + len(metadata_ciphertext).to_bytes(4, 'big') + metadata_ciphertext + ciphertext
-
-        else:
-            raise ValueError(f"Неподдерживаемый метод шифрования: {method}")
-
-        with open(encrypted_file_path, 'wb') as f:
-            f.write(encrypted_data)
-        return encrypted_file_path
-
-    def decrypt_file(self, file_path: str, password: str, method: str = "AES-256-CBC", output_path: str = None,
-                     current_device_id: str = None, current_ip: str = None):
-        if not os.path.exists(file_path):
-            raise FileNotFoundError("Зашифрованный файл не найден")
-
-        self.generate_key(password, method)
-        decrypted_file_path = output_path if output_path else file_path.replace(".enc", "_decrypted")
+        self.generate_key(password)
 
         with open(file_path, 'rb') as f:
             data = f.read()
 
-        if method == "AES-256-CBC":
-            iv = data[:16]
-            metadata_len = int.from_bytes(data[16:20], 'big')
-            metadata_ciphertext = data[20:20 + metadata_len]
-            ciphertext = data[20 + metadata_len:]
-            metadata_cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            try:
-                metadata_padded = metadata_cipher.decrypt(metadata_ciphertext)
-                metadata_bytes = unpad(metadata_padded, AES.block_size)
-                metadata = json.loads(metadata_bytes.decode('utf-8'))
-            except ValueError:
-                raise ValueError("Неверный пароль или поврежденные метаданные")
-            cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            try:
-                plaintext_padded = cipher.decrypt(ciphertext)
-                plaintext = unpad(plaintext_padded, AES.block_size)
-            except ValueError:
-                metadata["attempts_left"] -= 1
-                if metadata["attempts_left"] <= 0:
-                    os.remove(file_path)
-                    raise PermissionError("Превышено количество неверных попыток!")
-                self._update_metadata(file_path, metadata, method, iv, ciphertext)
-                raise ValueError("Неверный пароль или поврежденные данные")
+        file_hash = hashlib.sha256(data).hexdigest()
+        iv = get_random_bytes(16)
+        nonce = get_random_bytes(12) if method == "ChaCha20" else b""
 
-        elif method == "ChaCha20":
-            nonce = data[:8]
-            metadata_len = int.from_bytes(data[8:12], 'big')
-            metadata_ciphertext = data[12:12 + metadata_len]
-            ciphertext = data[12 + metadata_len:]
-            metadata_cipher = ChaCha20.new(key=self.key, nonce=nonce)
-            try:
-                metadata_bytes = metadata_cipher.decrypt(metadata_ciphertext)
-                metadata = json.loads(metadata_bytes.decode('utf-8'))
-            except ValueError:
-                raise ValueError("Неверный пароль или поврежденные метаданные")
+        if method == "ChaCha20":
             cipher = ChaCha20.new(key=self.key, nonce=nonce)
-            plaintext = cipher.decrypt(ciphertext)
-
+            encrypted = cipher.encrypt(data)
         elif method == "Blowfish":
-            iv = data[:8]
-            metadata_len = int.from_bytes(data[8:12], 'big')
-            metadata_ciphertext = data[12:12 + metadata_len]
-            ciphertext = data[12 + metadata_len:]
-            metadata_cipher = Blowfish.new(self.key, Blowfish.MODE_CBC, iv)
-            try:
-                metadata_padded = metadata_cipher.decrypt(metadata_ciphertext)
-                metadata_bytes = unpad(metadata_padded, Blowfish.block_size)
-                metadata = json.loads(metadata_bytes.decode('utf-8'))
-            except ValueError:
-                raise ValueError("Неверный пароль или поврежденные метаданные")
-            cipher = Blowfish.new(self.key, Blowfish.MODE_CBC, iv)
-            try:
-                plaintext_padded = cipher.decrypt(ciphertext)
-                plaintext = unpad(plaintext_padded, Blowfish.block_size)
-            except ValueError:
-                raise ValueError("Неверный пароль или поврежденные данные")
+            cipher = Blowfish.new(self.key[:16], Blowfish.MODE_CBC, iv[:8])
+            encrypted = cipher.encrypt(pad(data, Blowfish.block_size))
+        elif method == "DES3":
+            cipher = DES3.new(self.key[:24], DES3.MODE_CBC, iv[:8])
+            encrypted = cipher.encrypt(pad(data, DES3.block_size))
+        else:  # AES-256-CBC
+            cipher = AES.new(self.key, AES.MODE_CBC, iv)
+            encrypted = cipher.encrypt(pad(data, AES.block_size))
 
+        metadata = {
+            "original_name": os.path.basename(file_path),
+            "file_hash": file_hash,
+            "max_opens": max_opens,
+            "current_opens": 0,
+            "attempts_left": max_attempts,
+            "method": method,
+            "device_id": device_id,
+            "ip_address": ip_address,
+            "mac_address": self._get_mac_address()
+        }
+
+        meta_json = json.dumps(metadata).encode()
+        hmac_sig = self._hmac_sign(encrypted)
+
+        output_path = file_path + ".enc"
+        with open(output_path, 'wb') as f:
+            f.write(len(iv).to_bytes(1, 'big'))
+            f.write(iv)
+            f.write(len(nonce).to_bytes(1, 'big'))
+            f.write(nonce)
+            f.write(len(meta_json).to_bytes(4, 'big'))
+            f.write(meta_json)
+            f.write(len(hmac_sig).to_bytes(2, 'big'))
+            f.write(hmac_sig)
+            f.write(encrypted)
+
+        return output_path
+
+    def decrypt_file(self, file_path: str, password: str, method: str = "AES-256-CBC",
+                     output_path: str = None, current_device_id: str = None, current_ip: str = None):
+        if not os.path.exists(file_path):
+            raise FileNotFoundError("Файл не найден")
+
+        self.generate_key(password)
+        with open(file_path, 'rb') as f:
+            iv_len = int.from_bytes(f.read(1), 'big')
+            iv = f.read(iv_len)
+            nonce_len = int.from_bytes(f.read(1), 'big')
+            nonce = f.read(nonce_len)
+            meta_len = int.from_bytes(f.read(4), 'big')
+            meta_bytes = f.read(meta_len)
+            hmac_len = int.from_bytes(f.read(2), 'big')
+            hmac_sig = f.read(hmac_len)
+            encrypted_data = f.read()
+
+        metadata = json.loads(meta_bytes.decode())
+
+        if metadata.get("device_id") and current_device_id and metadata["device_id"] != current_device_id:
+            raise PermissionError("Несанкционированное устройство")
+        if metadata.get("ip_address") and current_ip and metadata["ip_address"] != current_ip:
+            raise PermissionError("Несанкционированный IP")
+        if metadata.get("mac_address") and metadata["mac_address"] != self._get_mac_address():
+            raise PermissionError("MAC-адрес не совпадает")
+
+        self._hmac_verify(encrypted_data, hmac_sig)
+
+        # Обработка счётчика открытий
+        metadata["current_opens"] += 1
+        if metadata["current_opens"] > metadata["max_opens"]:
+            os.remove(file_path)
+            raise PermissionError("Превышен лимит открытий")
+
+        if method == "ChaCha20":
+            cipher = ChaCha20.new(key=self.key, nonce=nonce)
+            decrypted = cipher.decrypt(encrypted_data)
+        elif method == "Blowfish":
+            cipher = Blowfish.new(self.key[:16], Blowfish.MODE_CBC, iv[:8])
+            decrypted = unpad(cipher.decrypt(encrypted_data), Blowfish.block_size)
+        elif method == "DES3":
+            cipher = DES3.new(self.key[:24], DES3.MODE_CBC, iv[:8])
+            decrypted = unpad(cipher.decrypt(encrypted_data), DES3.block_size)
         else:
-            raise ValueError(f"Неподдерживаемый метод шифрования: {method}")
+            cipher = AES.new(self.key, AES.MODE_CBC, iv)
+            decrypted = unpad(cipher.decrypt(encrypted_data), AES.block_size)
 
-        if current_device_id and metadata["device_id"] and metadata["device_id"] != current_device_id and self.device_restriction:
-            os.remove(file_path)
-            raise PermissionError("Несанкционированное устройство!")
-        if current_ip and metadata["ip_address"] and metadata["ip_address"] != current_ip and self.device_restriction:
-            os.remove(file_path)
-            raise PermissionError("Несанкционированный IP!")
-
-        if metadata["attempts_left"] <= 0:
-            os.remove(file_path)
-            raise PermissionError("Превышено количество неверных попыток ввода пароля!")
-
-        calculated_hash = hashlib.sha256(plaintext).hexdigest()
-        if calculated_hash != metadata["file_hash"]:
+        # Проверка целостности
+        file_hash = hashlib.sha256(decrypted).hexdigest()
+        if file_hash != metadata["file_hash"]:
             metadata["attempts_left"] -= 1
             if metadata["attempts_left"] <= 0:
                 os.remove(file_path)
-                raise PermissionError("Превышено количество неверных попыток!")
-            self._update_metadata(file_path, metadata, method, iv if method != "ChaCha20" else nonce, ciphertext)
-            raise ValueError("Хэш данных не совпадает")
+                raise PermissionError("Превышен лимит попыток")
+            raise ValueError("Хэш-сумма не совпадает")
 
-        with open(decrypted_file_path, 'wb') as f:
-            f.write(plaintext)
-        return decrypted_file_path
+        if not output_path:
+            output_path = os.path.join(os.path.dirname(file_path), metadata["original_name"])
 
-    def _update_metadata(self, file_path: str, metadata: dict, method: str, iv: bytes, ciphertext: bytes):
-        metadata_bytes = json.dumps(metadata).encode('utf-8')
-        if method == "AES-256-CBC":
-            padded_metadata = pad(metadata_bytes, AES.block_size)
-            metadata_cipher = AES.new(self.key, AES.MODE_CBC, iv)
-            metadata_ciphertext = metadata_cipher.encrypt(padded_metadata)
-            updated_data = iv + len(metadata_ciphertext).to_bytes(4, 'big') + metadata_ciphertext + ciphertext
-        elif method == "ChaCha20":
-            nonce = iv
-            metadata_cipher = ChaCha20.new(key=self.key, nonce=nonce)
-            metadata_ciphertext = metadata_cipher.encrypt(metadata_bytes)
-            updated_data = nonce + len(metadata_ciphertext).to_bytes(4, 'big') + metadata_ciphertext + ciphertext
-        elif method == "Blowfish":
-            padded_metadata = pad(metadata_bytes, Blowfish.block_size)
-            metadata_cipher = Blowfish.new(self.key, Blowfish.MODE_CBC, iv)
-            metadata_ciphertext = metadata_cipher.encrypt(padded_metadata)
-            updated_data = iv + len(metadata_ciphertext).to_bytes(4, 'big') + metadata_ciphertext + ciphertext
-        else:
-            raise ValueError(f"Неподдерживаемый метод шифрования: {method}")
+        with open(output_path, 'wb') as f:
+            f.write(decrypted)
+
+        # Обновить metadata (только current_opens и attempts_left)
+        new_meta = json.dumps(metadata).encode()
+        with open(file_path, 'rb') as f:
+            content = f.read()
+
+        prefix_len = 1 + iv_len + 1 + nonce_len
+        content = (
+            content[:prefix_len] +
+            len(new_meta).to_bytes(4, 'big') + new_meta +
+            content[prefix_len + meta_len + 2 + len(hmac_sig):]
+        )
 
         with open(file_path, 'wb') as f:
-            f.write(updated_data)
+            f.write(content)
+
+        return output_path

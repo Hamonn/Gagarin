@@ -1,0 +1,4 @@
+[2025-03-31 23:20:38] [Безопасное удаление] C:/Users/Scrollend/Documents/GitHub/Gagarin/Расшифровка/TEST1.txt Размер: 8 байт
+[2025-03-31 23:20:38] [Безопасное удаление] C:/Users/Scrollend/Documents/GitHub/Gagarin/TEST1.txt.enc Размер: 294 байт
+[2025-03-31 23:20:38] [Удаление] C:/Users/Scrollend/Documents/GitHub/Gagarin/Расшифровка/TEST1.txt Причина: Обнаружено копирование в буфер
+[2025-03-31 23:20:48] [Удаление] C:/Users/Scrollend/Documents/GitHub/Gagarin/Расшифровка/TEST1.txt Причина: Таймер истек
