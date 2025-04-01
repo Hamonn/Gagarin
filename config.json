@@ -1,0 +1,8 @@
+{
+  "theme": "Тёмная",
+  "encryption_method": "AES-256-CBC",
+  "timer": 0,
+  "copy_protection": false,
+  "bind": false,
+  "max_opens": 5
+}
