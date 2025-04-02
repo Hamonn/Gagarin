@@ -2,9 +2,11 @@ import os
 import win32file
 import sys
 import json
+import re
 import multiprocessing
 import threading
 import time
+import psutil
 import subprocess
 import ctypes
 import winreg
@@ -41,6 +43,66 @@ QLineEdit, QTextEdit, QComboBox, QSpinBox { background-color: #1e1e1e; color: wh
 QTabBar::tab { padding: 6px 12px; }
 QLabel { font-weight: 500; }
 """
+
+def kill_processes_with_cmdline_reference_to_file(file_path):
+    import psutil
+    import os
+
+    abs_path = os.path.abspath(file_path)
+    abs_path_lower = abs_path.lower()
+
+    killed = set()
+
+    for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmd = ' '.join(proc.info['cmdline']).lower()
+            if abs_path_lower in cmd:
+                print(f"[CMDLINE] Завершаем {proc.name()} (PID {proc.pid}) по ссылке в аргументах запуска")
+                proc.kill()
+                killed.add(proc.pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            continue
+        except Exception as e:
+            print(f"[CMDLINE] Ошибка анализа процесса {proc.pid}: {e}")
+
+    if not killed:
+        print(f"[CMDLINE] Не найдено процессов с файлом в аргументах запуска.")
+
+
+def kill_file_users_with_handle(file_path):
+    import subprocess
+    import re
+    import psutil
+    import os
+
+    abs_path = os.path.abspath(file_path)
+
+    try:
+        result = subprocess.run(
+            ["handle.exe", abs_path],
+            capture_output=True, text=True
+        )
+        output = result.stdout.strip()
+
+        if not output or "No matching handles found." in output:
+            print(f"[HANDLE] Файл не используется: {abs_path}")
+            return
+
+        print(f"[HANDLE] Результат:\n{output}\n")
+
+        pids = set(map(int, re.findall(r'pid: (\d+)', output)))
+
+        for pid in pids:
+            try:
+                proc = psutil.Process(pid)
+                print(f"[HANDLE] Завершаем процесс: {proc.name()} (PID {pid})")
+                proc.kill()
+            except Exception as e:
+                print(f"[HANDLE] Не удалось завершить PID {pid}: {e}")
+
+    except Exception as e:
+        print(f"[HANDLE] Ошибка при вызове handle.exe: {e}")
+
 
 class USBFileGuard(threading.Thread):
     def __init__(self, filename: str, on_violation):
@@ -86,13 +148,36 @@ class TimerProcess(Process):
         for path in self.paths:
             try:
                 if path and os.path.exists(path):
-                    os.remove(path)
+                    from visual import secure_delete_file
+                    secure_delete_file(path)
             except Exception:
                 pass
 
 
 def get_file_drive(path):
     return os.path.splitdrive(os.path.abspath(path))[0]
+
+def secure_delete_file(path):
+    try:
+        kill_file_users_with_handle(path)  # Основной способ через дескрипторы
+        kill_processes_with_cmdline_reference_to_file(path)  # Эвристика по cmdline
+
+        if os.path.exists(path):
+            with open(path, 'r+b') as f:
+                length = os.path.getsize(path)
+                f.write(b'\x00' * length)
+                f.flush()
+
+            os.remove(path)
+            print(f"[Удаление] Файл удалён: {path}")
+        else:
+            print(f"[Удаление] Файл уже не существует: {path}")
+
+    except Exception as e:
+        print(f"[Удаление] Ошибка: {e}")
+
+
+
 
 def calculate_file_hash(path):
     hasher = hashlib.sha256()
@@ -175,7 +260,8 @@ class TimerProcess(multiprocessing.Process):
         for path in self.paths:
             try:
                 if path and os.path.exists(path):
-                    os.remove(path)
+                    from visual import secure_delete_file
+                    secure_delete_file(path)
             except: pass
 
 class MainWindow(QWidget):
@@ -183,7 +269,7 @@ class MainWindow(QWidget):
         super().__init__()
         self.setWindowTitle("🔐 Шифровальщик")
         self.resize(960, 600)
-
+        self.file_watcher = None
         self.crypto = CryptoModule()
         self.device_id = get_device_id()
         self.ip_address = get_ip_address()
@@ -459,7 +545,7 @@ class MainWindow(QWidget):
         for p in [self.decrypted_file_path, self.encrypted_file_path]:
             try:
                 if p and os.path.exists(p):
-                    os.remove(p)
+                    secure_delete_file(p)
             except:
                 pass
 
@@ -488,7 +574,7 @@ class MainWindow(QWidget):
         for path in (self.decrypted_file_path, self.encrypted_file_path):
             try:
                 if path and os.path.exists(path):
-                    os.remove(path)
+                    secure_delete_file(path)
             except:
                 pass
 
@@ -633,6 +719,18 @@ class MainWindow(QWidget):
                 self.copy_protection = cfg.get("copy_protection", self.copy_protection)
                 self.use_ip_mac = cfg.get("bind", self.use_ip_mac)
                 self.max_opens = cfg.get("max_opens", self.max_opens)
+
+def kill_processes_using_file(target_path):
+    for proc in psutil.process_iter(['pid', 'name', 'open_files']):
+        try:
+            files = proc.info['open_files']
+            if files:
+                for f in files:
+                    if os.path.samefile(f.path, target_path):
+                        proc.kill()
+                        break
+        except (psutil.AccessDenied, psutil.NoSuchProcess):
+            continue
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
