@@ -2,6 +2,8 @@ import os
 import win32file
 import sys
 import json
+import socket
+from PyQt6.QtWidgets import QDialog
 import re
 import multiprocessing
 import threading
@@ -10,6 +12,8 @@ import psutil
 import subprocess
 import ctypes
 import winreg
+import urllib.request
+import webbrowser
 import hashlib
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog,
@@ -299,12 +303,36 @@ class MainWindow(QWidget):
         self.tabs.addTab(self.encrypt_tab(), "🔒 Шифрование")
         self.tabs.addTab(self.decrypt_tab(), "🔓 Расшифровка")
         self.tabs.addTab(self.help_tab(), "📘 Справка")
+        self.tabs.addTab(self.network_monitor_tab(), "🌐 Сетевой монитор")
         self.tabs.addTab(self.program_settings_tab(), "⚙️ Настройки")
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.tabs)
         self.apply_theme()
 
+    def network_monitor_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        info_box = QTextEdit()
+        info_box.setReadOnly(True)
+        info_box.setStyleSheet("font-family: Consolas; font-size: 11pt;")
+
+        hostname = socket.gethostname()
+        ip = get_ip_address()
+        mac = self.crypto._get_mac()
+
+        info = (
+            f"🖥 Имя хоста:     {hostname}\n"
+            f"🌐 Текущий IP:   {ip}\n"
+            f"🔗 MAC-адрес:    {mac}\n\n"
+            "ℹ️ Эти параметры можно использовать при включении функции\n"
+            "«Привязка к IP/MAC» во время шифровки файла."
+        )
+
+        info_box.setPlainText(info)
+        layout.addWidget(info_box)
+        return tab
 
     def encrypt_tab(self):
         tab = QWidget()
@@ -347,6 +375,9 @@ class MainWindow(QWidget):
         self.copy_check.toggled.connect(lambda b: setattr(self, "copy_protection", b))
 
         self.bind_check = QCheckBox("Привязка к IP/MAC")
+        self.bind_check.toggled.connect(self.show_ip_mac_input)
+        self.bind_ip = ''
+        self.bind_mac = ''
         self.bind_check.setChecked(self.use_ip_mac)
         self.bind_check.toggled.connect(lambda b: setattr(self, "use_ip_mac", b))
 
@@ -378,10 +409,82 @@ class MainWindow(QWidget):
     def help_tab(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
-        text = QTextEdit("📘 Зашифруйте файл, передайте его. Все параметры сохраняются.")
-        text.setReadOnly(True)
-        layout.addWidget(text)
+
+        help_text = QTextEdit()
+        help_text.setReadOnly(True)
+        help_text.setStyleSheet("font-family: Segoe UI; font-size: 10.5pt;")
+
+        help_text.setHtml("""
+        <h2>📘 Инструкция по использованию</h2>
+        <p>Программа предназначена для безопасного шифрования и защиты файлов.</p>
+        <h3>🔒 Шифрование</h3>
+        <ul>
+            <li>Выберите файл или перетащите его в поле.</li>
+            <li>Установите пароль и параметры защиты.</li>
+            <li>Нажмите <b>«Зашифровать»</b>.</li>
+        </ul>
+        <h3>🔓 Расшифровка</h3>
+        <ul>
+            <li>Выберите зашифрованный файл.</li>
+            <li>Введите пароль и нажмите <b>«Расшифровать»</b>.</li>
+        </ul>
+        <h3>🛡 Дополнительные функции</h3>
+        <ul>
+            <li><b>Таймер удаления</b> — автоматическое уничтожение файла через заданное время.</li>
+            <li><b>Привязка к IP/MAC</b> — файл можно открыть только с конкретного устройства.</li>
+            <li><b>Запрет копирования</b> — защита буфера обмена.</li>
+            <li><b>Защита от переноса</b> — запрещает перемещение файла на другие диски.</li>
+        </ul>
+        <p style="color: gray; font-size: 9pt;">Разработано для повышения безопасности конфиденциальных данных.</p>
+        """)
+
+        layout.addWidget(help_text)
         return tab
+
+    def show_license(self):
+        QMessageBox.information(self, "Лицензия", """
+    Программа создана в рамках участия в научной конференции
+    «Гаранинские чтения» студентами филиала "Восход" МАИ:
+
+    • Уразбаев Максим
+    • Гайдаров Тимур
+
+    🔐 Назначение: безопасное шифрование и защита файлов.
+    Разработка ведётся в учебных целях с акцентом на кибербезопасность.
+
+    Все права защищены. Использование только в некоммерческих целях.
+    """)
+
+    def check_updates(self):
+        current_version = "1.0.0"
+        github_version_url = "https://raw.githubusercontent.com/your_username/your_repo/main/version.txt"
+        download_url = "https://github.com/your_username/your_repo/releases/latest"
+
+        try:
+            with urllib.request.urlopen(github_version_url) as response:
+                latest_version = response.read().decode().strip()
+
+            if latest_version > current_version:
+                reply = QMessageBox.question(
+                    self, "Обновление доступно",
+                    f"Доступна новая версия: {latest_version}\nСкачать с GitHub?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    webbrowser.open(download_url)
+            else:
+                QMessageBox.information(self, "Обновления", "✅ У вас актуальная версия.")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось проверить обновление:\n{e}")
+
+    def show_ip_mac_input(self, checked):
+        if checked:
+            dialog = IPMACDialog(self)
+            if dialog.exec():
+                ip, mac = dialog.get_values()
+                self.bind_ip = ip
+                self.bind_mac = mac
+
 
     def decrypt_tab(self):
         tab = QWidget()
@@ -428,6 +531,8 @@ class MainWindow(QWidget):
                 restrict_modification=self.prevent_edit,
                 restrict_move=self.prevent_move
             )
+            ip_address = self.bind_ip or self.ip_address,
+            mac_address = self.bind_mac or self.crypto._get_mac(),
             QMessageBox.information(self, "Готово", f"Зашифровано: {out}")
 
     def decrypt_file(self):
@@ -652,6 +757,15 @@ class MainWindow(QWidget):
         log_view_btn = QPushButton("📜 Журнал")
         log_view_btn.clicked.connect(self.open_log_viewer)
 
+        license_btn = QPushButton("🧾 Лицензия")
+        license_btn.clicked.connect(self.show_license)
+
+        update_btn = QPushButton("🌍 Проверить обновления")
+        update_btn.clicked.connect(self.check_updates)
+
+        layout.addWidget(license_btn)
+        layout.addWidget(update_btn)
+
         layout.addWidget(QLabel("Тема интерфейса:"))
         layout.addWidget(theme_box)
         layout.addWidget(autorun_btn)
@@ -720,6 +834,33 @@ class MainWindow(QWidget):
                 self.copy_protection = cfg.get("copy_protection", self.copy_protection)
                 self.use_ip_mac = cfg.get("bind", self.use_ip_mac)
                 self.max_opens = cfg.get("max_opens", self.max_opens)
+
+class IPMACDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Привязка к IP/MAC")
+        self.setFixedSize(350, 200)
+
+        layout = QVBoxLayout(self)
+
+        self.ip_input = QLineEdit()
+        self.ip_input.setPlaceholderText("Пример: 192.168.1.100")
+
+        self.mac_input = QLineEdit()
+        self.mac_input.setPlaceholderText("Пример: aa:bb:cc:dd:ee:ff")
+
+        self.save_btn = QPushButton("Сохранить")
+        self.save_btn.clicked.connect(self.accept)
+
+        layout.addWidget(QLabel("Введите IP-адрес:"))
+        layout.addWidget(self.ip_input)
+        layout.addWidget(QLabel("Введите MAC-адрес:"))
+        layout.addWidget(self.mac_input)
+        layout.addWidget(self.save_btn)
+
+    def get_values(self):
+        return self.ip_input.text(), self.mac_input.text()
+
 
 def kill_processes_using_file(target_path):
     for proc in psutil.process_iter(['pid', 'name', 'open_files']):
