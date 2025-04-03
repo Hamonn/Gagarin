@@ -457,8 +457,8 @@ class MainWindow(QWidget):
 
     def check_updates(self):
         current_version = "1.0.0"
-        github_version_url = "https://raw.githubusercontent.com/your_username/your_repo/main/version.txt"
-        download_url = "https://github.com/your_username/your_repo/releases/latest"
+        github_version_url = "https://raw.githubusercontent.com/Hamonn/Gagarin/main/version.txt"
+        download_url = "https://github.com/Hamonn/Gagarin/releases/download/v1.0.0/visual.exe"
 
         try:
             with urllib.request.urlopen(github_version_url) as response:
