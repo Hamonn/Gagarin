@@ -680,6 +680,7 @@ class MainWindow(QWidget):
         self.theme = theme
         self.apply_theme()
         self.save_config()
+        self.repaint()
 
     def apply_theme(self):
         self.setStyleSheet(LIGHT_THEME if self.theme == "Светлая" else DARK_THEME)
