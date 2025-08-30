@@ -1,33 +1,28 @@
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QPushButton
-from logger import read_logs, clear_logs
+from PyQt6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QPushButton
+from utils import log_event
 
 class LogViewer(QDialog):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("📜 Журнал событий")
-        self.setFixedSize(600, 500)
-
-        layout = QVBoxLayout()
-        self.log_area = QTextEdit()
-        self.log_area.setReadOnly(True)
-
-        self.refresh_button = QPushButton("🔄 Обновить")
-        self.refresh_button.clicked.connect(self.load_logs)
-
-        self.clear_button = QPushButton("🧹 Очистить")
-        self.clear_button.clicked.connect(self.clear_logs)
-
-        layout.addWidget(self.log_area)
-        layout.addWidget(self.refresh_button)
-        layout.addWidget(self.clear_button)
-        self.setLayout(layout)
-
+        self.setWindowTitle("Журнал событий")
+        self.resize(700, 500)
+        layout = QVBoxLayout(self)
+        self.text_edit = QTextEdit()
+        self.text_edit.setReadOnly(True)
         self.load_logs()
+        close_btn = QPushButton("Закрыть")
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(self.text_edit)
+        layout.addWidget(close_btn)
+        log_event("Открыт просмотрщик логов")
 
     def load_logs(self):
-        logs = read_logs()
-        self.log_area.setPlainText("".join(logs))
-
-    def clear_logs(self):
-        if clear_logs():
-            self.log_area.setPlainText("")
+        try:
+            with open("encryptor.log", "r", encoding="utf-8") as f:
+                self.text_edit.setText(f.read())
+        except FileNotFoundError:
+            self.text_edit.setText("Журнал событий пуст.")
+            log_event("Файл логов не найден")
+        except Exception as e:
+            self.text_edit.setText(f"Ошибка загрузки логов: {str(e)}")
+            log_event(f"Ошибка загрузки логов: {str(e)}")

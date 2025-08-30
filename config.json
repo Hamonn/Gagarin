@@ -1,7 +1,7 @@
 {
-  "theme": "Светлая",
+  "theme": "Тёмная",
   "encryption_method": "AES-256-CBC",
-  "timer": 0,
+  "timer": 300,
   "copy_protection": false,
   "bind": false,
   "max_opens": 5

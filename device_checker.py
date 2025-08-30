@@ -1,22 +1,24 @@
 import uuid
 import socket
-import platform
-
+from utils import log_event
 
 def get_device_id():
     try:
-        device_id = str(uuid.getnode()) + platform.node()
+        device_id = str(uuid.getnode())
+        log_event(f"Получен ID устройства: {device_id}")
         return device_id
-    except Exception:
-        return "unknown_device"
-
+    except Exception as e:
+        log_event(f"Ошибка получения ID устройства: {str(e)}")
+        return "unknown"
 
 def get_ip_address():
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
-        ip_address = s.getsockname()[0]
+        ip = s.getsockname()[0]
         s.close()
-        return ip_address
-    except Exception:
-        return "unknown_ip"
+        log_event(f"Получен IP-адрес: {ip}")
+        return ip
+    except Exception as e:
+        log_event(f"Ошибка получения IP-адреса: {str(e)}")
+        return "127.0.0.1"
