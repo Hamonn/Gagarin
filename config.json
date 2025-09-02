@@ -4,5 +4,8 @@
   "timer": 300,
   "copy_protection": false,
   "bind": false,
-  "max_opens": 5
+  "max_opens": 5,
+  "animations": true,
+  "minimize_to_tray": false,
+  "play_sounds": false
 }
